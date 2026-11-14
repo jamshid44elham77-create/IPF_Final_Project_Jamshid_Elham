@@ -4,7 +4,7 @@
 
 StudyFlow is a responsive local web application for students who need to organize assignments, deadlines, and course work. It includes CRUD task management, priority-based recommendations, course progress, a monthly calendar, a focus timer, study-session statistics, CSV export, and iCalendar (`.ics`) export.
 
-> **Important:** The source code and teaching materials are prepared, but the project could **not be compiled or executed in the authoring environment because the .NET SDK was unavailable**. Run the build and tests on your computer, inspect the actual interface, fix any environment-specific issues, and capture your own screenshots before submission. No claim of passing tests is made here.
+> **Important:** The source code and teaching materials are prepared, but the project could **not be compiled or executed in the authoring environment because the .NET SDK was unavailable**. Run the build and tests on your computer, inspect the actual interface, fix any environment-specific issues.
 
 ## 1. Requirements
 
