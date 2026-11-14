@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+.vs/
+.vscode/.ropeproject/
+StudyFlow.Web/App_Data/workspace.json
+StudyFlow.Web/App_Data/*.tmp
+*.user
+*.suo
+.DS_Store

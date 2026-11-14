@@ -1,0 +1,126 @@
+@page "/tasks"
+@implements IDisposable
+@inject WorkspaceService Workspace
+@inject IJSRuntime JS
+<PageTitle>My tasks · StudyFlow</PageTitle>
+
+<div class="page-heading"><div><div class="eyebrow">ASSIGNMENT ORGANIZER</div><h1>My assignments</h1>
+<p>Bring all your work together, without the stress.</p></div>
+<button type="button" class="btn primary" @onclick="NewTask">＋ New assignment</button></div>
+
+@if (!Workspace.IsLoaded)
+{
+    <div class="notice error">@(Workspace.LoadError ?? "Loading your assignments...")</div>
+}
+else
+{
+    <section class="surface task-toolbar" aria-label="Search and filter assignments">
+        <label class="search-box"><span aria-hidden="true">⌕</span><span class="sr-only">Search assignments</span>
+            <input placeholder="Search by title or description..." @bind="search" @bind:event="oninput" /></label>
+        <select class="control compact" aria-label="Filter by status" @bind="selectedStatus">
+            <option value="all">All statuses</option><option value="ToDo">To do</option>
+            <option value="InProgress">In progress</option><option value="Completed">Completed</option>
+        </select>
+        <select class="control compact" aria-label="Filter by course" @bind="selectedCourse">
+            <option value="all">All courses</option><option value="personal">Personal</option>
+            @foreach (var course in Workspace.Courses) { <option value="@course.Id">@course.Name</option> }
+        </select>
+        <select class="control compact" aria-label="Sort assignments" @bind="sortMode">
+            <option value="due">Soonest deadline</option><option value="priority">Highest priority</option>
+            <option value="recent">Recently edited</option><option value="title">Alphabetically</option>
+        </select>
+    </section>
+    @if (!string.IsNullOrWhiteSpace(message))
+    { <div role="alert" class="notice @(hasError ? "error" : "success")">@message <button class="notice-dismiss" @onclick="() => message = null" aria-label="Dismiss message">×</button></div> }
+    <div class="list-header"><h2>Assignments <span class="counter">@FilteredTasks.Count</span></h2>
+        <button class="btn secondary small" @onclick="ExportCsvAsync">↓ Export CSV</button></div>
+    @if (FilteredTasks.Count == 0)
+    {
+        <section class="surface"><EmptyState Icon="☑" Title="No matching assignments" Message="Try adjusting your filters or create a new task." /></section>
+    }
+    else
+    {
+        <section class="task-list" aria-label="Assignment list">
+            @foreach (var item in FilteredTasks)
+            {
+                <TaskCard @key="item.Id" Item="item" Course="Workspace.FindCourse(item.CourseId)" OnEdit="EditTask" OnDelete="DeleteTaskAsync" OnToggle="ToggleTaskAsync" />
+            }
+        </section>
+    }
+    <TaskEditor @key="draft" Open="showEditor" IsEditing="editingId.HasValue" Draft="draft" Courses="Workspace.Courses" OnSave="SaveTaskAsync" OnCancel="CloseEditor" />
+}
+
+@code {
+    private string search = "";
+    private string selectedStatus = "all";
+    private string selectedCourse = "all";
+    private string sortMode = "due";
+    private string? message;
+    private bool hasError;
+    private bool showEditor;
+    private Guid? editingId;
+    private TaskDraft draft = new();
+
+    private List<TaskItem> FilteredTasks
+    {
+        get
+        {
+            var filtered = Workspace.Tasks.Where(t =>
+                (string.IsNullOrWhiteSpace(search) || t.Title.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                 t.Description.Contains(search, StringComparison.OrdinalIgnoreCase)) &&
+                (selectedStatus == "all" || t.Status.ToString() == selectedStatus) &&
+                (selectedCourse == "all" ||
+                    (selectedCourse == "personal" && t.CourseId is null) ||
+                    (t.CourseId.HasValue && t.CourseId.Value.ToString() == selectedCourse)));
+            return sortMode switch
+            {
+                "priority" => filtered.OrderByDescending(t => t.Priority).ThenBy(t => t.DueDate ?? DateTime.MaxValue).ToList(),
+                "recent" => filtered.OrderByDescending(t => t.UpdatedAtUtc).ToList(),
+                "title" => filtered.OrderBy(t => t.Title, StringComparer.OrdinalIgnoreCase).ToList(),
+                _ => filtered.OrderBy(t => t.Status == AssignmentStatus.Completed)
+                    .ThenBy(t => t.DueDate ?? DateTime.MaxValue).ThenByDescending(t => t.Priority).ToList()
+            };
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Workspace.InitializeAsync();
+        Workspace.Changed += Refresh;
+    }
+    private void NewTask()
+    {
+        draft = new TaskDraft(); editingId = null; showEditor = true; message = null;
+    }
+    private void EditTask(TaskItem item)
+    {
+        draft = TaskDraft.From(item); editingId = item.Id; showEditor = true; message = null;
+    }
+    private void CloseEditor() => showEditor = false;
+    private async Task SaveTaskAsync(TaskDraft value)
+    {
+        var outcome = editingId is Guid id ? await Workspace.UpdateTaskAsync(id, value) : await Workspace.CreateTaskAsync(value);
+        ShowResult(outcome, editingId.HasValue ? "Assignment updated." : "Assignment created.");
+        if (outcome.Success) showEditor = false;
+    }
+    private async Task DeleteTaskAsync(TaskItem item)
+    {
+        if (!await JS.InvokeAsync<bool>("studyflow.confirmDelete", $"Delete '{item.Title}'? This action cannot be undone.")) return;
+        ShowResult(await Workspace.DeleteTaskAsync(item.Id), "Assignment deleted.");
+    }
+    private async Task ToggleTaskAsync(TaskItem item)
+    {
+        var next = item.Status == AssignmentStatus.Completed ? AssignmentStatus.ToDo : AssignmentStatus.Completed;
+        ShowResult(await Workspace.SetAssignmentStatusAsync(item.Id, next), next == AssignmentStatus.Completed ? "Great job! Assignment completed." : "Assignment reopened.");
+    }
+    private async Task ExportCsvAsync()
+    {
+        await JS.InvokeVoidAsync("studyflow.downloadText", "studyflow-tasks.csv",
+            ExportService.ToCsv(Workspace.Tasks, Workspace.Courses), "text/csv;charset=utf-8");
+        message = "CSV file exported."; hasError = false;
+    }
+    private void ShowResult(OperationResult outcome, string success)
+    { message = outcome.Success ? success : outcome.Error; hasError = !outcome.Success; }
+    private void Refresh() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Workspace.Changed -= Refresh;
+}

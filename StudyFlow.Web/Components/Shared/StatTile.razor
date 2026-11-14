@@ -1,0 +1,14 @@
+<div class="stat-tile @Tone">
+    <div class="stat-icon" aria-hidden="true">@Icon</div>
+    <div class="stat-label">@Label</div>
+    <div class="stat-value">@Value</div>
+    <div class="stat-note">@Detail</div>
+</div>
+
+@code {
+    [Parameter] public string Icon { get; set; } = "✦";
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public string Value { get; set; } = "0";
+    [Parameter] public string Detail { get; set; } = string.Empty;
+    [Parameter] public string Tone { get; set; } = "purple";
+}

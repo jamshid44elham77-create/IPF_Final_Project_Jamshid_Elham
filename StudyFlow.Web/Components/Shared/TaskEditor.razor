@@ -1,0 +1,53 @@
+@if (Open)
+{
+    <div class="modal-overlay" @onclick="CancelAsync">
+        <section class="modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div><div class="eyebrow">ASSIGNMENT DETAILS</div><h2 id="task-modal-title">@(IsEditing ? "Edit assignment" : "New assignment")</h2></div>
+                <button class="icon-button" type="button" aria-label="Close editor" @onclick="CancelAsync">×</button>
+            </div>
+            <EditForm Model="Draft" OnValidSubmit="SubmitAsync">
+                <DataAnnotationsValidator />
+                <div class="field"><label for="task-title">Title <span class="required">*</span></label>
+                    <InputText id="task-title" class="control" @bind-Value="Draft.Title" placeholder="e.g. Finish C# presentation" />
+                    <ValidationMessage For="@(() => Draft.Title)" /></div>
+                <div class="field"><label for="task-desc">Description</label>
+                    <InputTextArea id="task-desc" class="control textarea" @bind-Value="Draft.Description" placeholder="Add helpful notes or instructions..." />
+                    <ValidationMessage For="@(() => Draft.Description)" /></div>
+                <div class="form-grid">
+                    <div class="field"><label for="task-course">Course</label>
+                        <InputSelect id="task-course" class="control" @bind-Value="Draft.CourseId">
+                            <option value="">Personal / no course</option>
+                            @foreach (var course in Courses) { <option value="@course.Id">@course.Name</option> }
+                        </InputSelect></div>
+                    <div class="field"><label for="task-due">Deadline</label>
+                        <InputDate id="task-due" class="control" @bind-Value="Draft.DueDate" /></div>
+                    <div class="field"><label for="task-priority">Priority</label>
+                        <InputSelect id="task-priority" class="control" @bind-Value="Draft.Priority">
+                            @foreach (var priority in Enum.GetValues<TaskPriority>()) { <option value="@priority">@priority</option> }
+                        </InputSelect></div>
+                    <div class="field"><label for="task-status">Status</label>
+                        <InputSelect id="task-status" class="control" @bind-Value="Draft.Status">
+                            <option value="ToDo">To do</option><option value="InProgress">In progress</option><option value="Completed">Completed</option>
+                        </InputSelect></div>
+                    <div class="field"><label for="task-time">Estimated time (min)</label>
+                        <InputNumber id="task-time" class="control" @bind-Value="Draft.EstimatedMinutes" />
+                        <ValidationMessage For="@(() => Draft.EstimatedMinutes)" /></div>
+                </div>
+                <div class="modal-actions"><button type="button" class="btn secondary" @onclick="CancelAsync">Cancel</button>
+                    <button type="submit" class="btn primary">@(IsEditing ? "Save changes" : "Create assignment")</button></div>
+            </EditForm>
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public bool IsEditing { get; set; }
+    [Parameter, EditorRequired] public TaskDraft Draft { get; set; } = new();
+    [Parameter] public IReadOnlyList<Course> Courses { get; set; } = [];
+    [Parameter] public EventCallback<TaskDraft> OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    private Task SubmitAsync() => OnSave.InvokeAsync(Draft);
+    private Task CancelAsync() => OnCancel.InvokeAsync();
+}

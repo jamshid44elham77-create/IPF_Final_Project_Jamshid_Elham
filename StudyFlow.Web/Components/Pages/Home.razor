@@ -1,0 +1,100 @@
+@page "/"
+@implements IDisposable
+@inject WorkspaceService Workspace
+<PageTitle>Dashboard · StudyFlow</PageTitle>
+
+<div class="page-heading"><div><div class="eyebrow">OVERVIEW / YOUR STUDY SPACE</div><h1>Make today count <span class="sparkle">✳</span></h1>
+<p>Stay organized, make progress, and keep your deadlines in sight.</p></div>
+<a class="btn primary" href="/tasks">＋ Manage tasks</a></div>
+
+@if (!Workspace.IsLoaded)
+{
+    <div class="notice error">@(Workspace.LoadError ?? "Loading your workspace...")</div>
+}
+else
+{
+    <section class="welcome-banner">
+        <div><span class="banner-tag">✦ YOUR DAILY MOMENTUM</span>
+            <h2>@Greeting</h2><p>You have <strong>@Workspace.Stats.DueSoon upcoming</strong> deadlines in the next three days. Take one step at a time.</p>
+            <a href="/focus" class="banner-link">Start a focus session <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="banner-graphic" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><span>✓</span></div>
+    </section>
+
+    <section aria-label="Study overview" class="stats-grid">
+        <StatTile Icon="▤" Label="Total assignments" Value="@Workspace.Stats.Total.ToString()" Detail="Across all courses" Tone="purple" />
+        <StatTile Icon="◷" Label="In progress" Value="@Workspace.Stats.InProgress.ToString()" Detail="Keep the momentum" Tone="blue" />
+        <StatTile Icon="✓" Label="Completed" Value="@Workspace.Stats.Completed.ToString()" Detail="Every finish counts" Tone="green" />
+        <StatTile Icon="!" Label="Overdue" Value="@Workspace.Stats.Overdue.ToString()" Detail="Needs your attention" Tone="orange" />
+    </section>
+
+    <div class="dashboard-columns">
+        <section class="surface main-panel">
+            <div class="panel-heading"><div><div class="eyebrow">PERSONALIZED PRIORITIES</div><h2>What to work on next</h2></div><span class="subtle-badge">SMART PICKS</span></div>
+            <p class="section-copy">Recommendations consider deadlines, priorities, and tasks already in progress.</p>
+            @if (Workspace.SuggestedTasks.Count == 0)
+            {
+                <EmptyState Icon="✓" Title="You're all caught up" Message="Create your next assignment to keep moving forward." />
+            }
+            else
+            {
+                <div class="recommend-list">
+                    @foreach (var item in Workspace.SuggestedTasks)
+                    {
+                        <div class="recommend-item" @key="item.Id">
+                            <div class="recommend-number">@(Workspace.SuggestedTasks.ToList().IndexOf(item) + 1)</div>
+                            <div class="recommend-copy"><strong>@item.Title</strong><span>@(Workspace.FindCourse(item.CourseId)?.Name ?? "Personal") · @TaskInsights.DueLabel(item.DueDate, DateTime.Today)</span></div>
+                            <span class="priority-pill @item.Priority.ToString().ToLowerInvariant()">@item.Priority</span>
+                        </div>
+                    }
+                </div>
+            }
+            <a href="/tasks" class="panel-footer-link">View all assignments →</a>
+        </section>
+        <section class="surface progress-panel">
+            <div class="panel-heading"><div><div class="eyebrow">STAY ON TRACK</div><h2>Your progress</h2></div></div>
+            <div class="progress-ring" style="@($"--progress:{Workspace.Stats.CompletionPercent}%")">
+                <div><strong>@Workspace.Stats.CompletionPercent%</strong><span>complete</span></div>
+            </div>
+            <div class="progress-legend"><span><i class="legend-dot done"></i> Done</span><strong>@Workspace.Stats.Completed</strong></div>
+            <div class="progress-legend"><span><i class="legend-dot remaining"></i> Still to do</span><strong>@(Workspace.Stats.Total - Workspace.Stats.Completed)</strong></div>
+            <div class="focus-total">◎ <strong>@Workspace.Stats.FocusMinutes</strong> total focus minutes logged</div>
+        </section>
+    </div>
+    <section class="surface courses-panel">
+        <div class="panel-heading"><div><div class="eyebrow">CLASSROOM ORGANIZATION</div><h2>Course progress</h2></div><a href="/courses" class="text-link">Manage courses →</a></div>
+        @if (Workspace.Courses.Count == 0)
+        { <EmptyState Title="No courses added" Message="Create a course to group your assignments." /> }
+        else
+        {
+            <div class="course-progress-grid">
+                @foreach (var course in Workspace.Courses)
+                {
+                    var tasks = Workspace.Tasks.Where(t => t.CourseId == course.Id).ToList();
+                    var pct = tasks.Count == 0 ? 0 : (int)Math.Round(100.0 * tasks.Count(t => t.Status == AssignmentStatus.Completed) / tasks.Count);
+                    <div class="course-progress-card" @key="course.Id">
+                        <div class="course-heading"><span class="course-icon" style="@($"background:{course.Color}")">▤</span><div><strong>@course.Name</strong><small>@course.Code · @tasks.Count tasks</small></div></div>
+                        <div class="course-progress-label"><span>Progress</span><strong>@pct%</strong></div>
+                        <div class="progress-track"><div class="progress-fill" style="@($"width:{pct}%;background:{course.Color}")"></div></div>
+                    </div>
+                }
+            </div>
+        }
+    </section>
+}
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        await Workspace.InitializeAsync();
+        Workspace.Changed += Refresh;
+    }
+    private string Greeting => DateTime.Now.Hour switch
+    {
+        < 12 => "Good morning, let's make progress.",
+        < 17 => "Good afternoon, keep going.",
+        _ => "Good evening, finish strong."
+    };
+    private void Refresh() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Workspace.Changed -= Refresh;
+}

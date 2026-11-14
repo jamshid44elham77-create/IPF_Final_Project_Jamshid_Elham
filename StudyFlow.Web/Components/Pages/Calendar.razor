@@ -1,0 +1,85 @@
+@page "/calendar"
+@implements IDisposable
+@inject WorkspaceService Workspace
+@inject IJSRuntime JS
+<PageTitle>Calendar · StudyFlow</PageTitle>
+
+<div class="page-heading"><div><div class="eyebrow">DEADLINE PLANNER</div><h1>Deadline calendar</h1>
+<p>See what is coming up and plan your next move.</p></div>
+<button class="btn secondary" @onclick="ExportCalendarAsync">↓ Export .ics</button></div>
+
+@if (!Workspace.IsLoaded)
+{
+    <div class="notice error">@(Workspace.LoadError ?? "Loading calendar...")</div>
+}
+else
+{
+    <div class="calendar-layout">
+        <section class="surface calendar-surface">
+            <div class="calendar-header"><div><div class="eyebrow">MONTH AT A GLANCE</div><h2>@visibleMonth.ToString("MMMM yyyy")</h2></div>
+                <div class="calendar-switch"><button aria-label="Previous month" @onclick="() => ChangeMonth(-1)">‹</button>
+                    <button @onclick="JumpToToday">Today</button><button aria-label="Next month" @onclick="() => ChangeMonth(1)">›</button></div></div>
+            <div class="calendar-grid" role="grid" aria-label="Task deadline calendar">
+                @foreach (var dayName in new[] { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" })
+                { <div class="weekday" role="columnheader">@dayName</div> }
+                @foreach (var day in Days)
+                {
+                    var count = Workspace.Tasks.Count(t => t.DueDate?.Date == day.Date);
+                    <button class="calendar-day @(day.Month == visibleMonth.Month ? "" : "other-month") @(day.Date == DateTime.Today ? "today" : "") @(day.Date == selectedDate.Date ? "selected" : "")"
+                            @key="day" title="@($"{day:MMMM d, yyyy}: {count} assignment(s)")" aria-label="@($"{day:MMMM d, yyyy}, {count} assignments")"
+                            aria-pressed="@(day.Date == selectedDate.Date)" @onclick="() => SelectDate(day)">
+                        <span>@day.Day</span>
+                        @if (count > 0) { <span class="day-count">@count</span> }
+                    </button>
+                }
+            </div>
+            <div class="calendar-footer-note"><span class="legend-dot done"></span> Select a date to see its assignments.</div>
+        </section>
+        <aside class="surface calendar-detail">
+            <div class="eyebrow">SELECTED DAY</div><h2>@selectedDate.ToString("dddd, MMM d")</h2>
+            <p class="section-copy">@SelectedTasks.Count assignment(s) on this day</p>
+            @if (SelectedTasks.Count == 0)
+            { <EmptyState Icon="☼" Title="A clear day" Message="No assignments are due on this date." /> }
+            else
+            {
+                @foreach (var item in SelectedTasks)
+                {
+                    <div class="calendar-task" @key="item.Id">
+                        <div><span class="priority-pill @item.Priority.ToString().ToLowerInvariant()">@item.Priority</span>
+                            <h3>@item.Title</h3><small>@(Workspace.FindCourse(item.CourseId)?.Name ?? "Personal")</small></div>
+                        <span class="status-tag @item.Status.ToString().ToLowerInvariant()">@item.Status</span>
+                    </div>
+                }
+            }
+            <a class="btn secondary wide" href="/tasks">Open task manager →</a>
+            <p class="small-print">Export creates an iCalendar file for importing deadlines into supported calendar apps.</p>
+        </aside>
+    </div>
+}
+
+@code {
+    private DateTime visibleMonth = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private DateTime selectedDate = DateTime.Today;
+    private IReadOnlyList<DateTime> Days
+    {
+        get
+        {
+            var offset = ((int)visibleMonth.DayOfWeek + 6) % 7;
+            return Enumerable.Range(0, 42).Select(i => visibleMonth.AddDays(i - offset)).ToList();
+        }
+    }
+    private List<TaskItem> SelectedTasks => Workspace.Tasks.Where(t => t.DueDate?.Date == selectedDate.Date)
+        .OrderByDescending(t => t.Priority).ToList();
+    protected override async Task OnInitializedAsync()
+    {
+        await Workspace.InitializeAsync();
+        Workspace.Changed += Refresh;
+    }
+    private void ChangeMonth(int direction) => visibleMonth = visibleMonth.AddMonths(direction);
+    private void JumpToToday() { selectedDate = DateTime.Today; visibleMonth = new(DateTime.Today.Year, DateTime.Today.Month, 1); }
+    private void SelectDate(DateTime day) { selectedDate = day; if (day.Month != visibleMonth.Month || day.Year != visibleMonth.Year) visibleMonth = new(day.Year, day.Month, 1); }
+    private Task ExportCalendarAsync() => JS.InvokeVoidAsync("studyflow.downloadText", "studyflow-deadlines.ics",
+        ExportService.ToIcs(Workspace.Tasks, DateTime.UtcNow), "text/calendar;charset=utf-8").AsTask();
+    private void Refresh() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Workspace.Changed -= Refresh;
+}

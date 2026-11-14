@@ -1,0 +1,145 @@
+@page "/focus"
+@implements IDisposable
+@inject WorkspaceService Workspace
+<PageTitle>Focus mode · StudyFlow</PageTitle>
+
+<div class="page-heading"><div><div class="eyebrow">DEEP WORK / SMALL WINS</div><h1>Focus mode</h1>
+<p>Give one assignment your full attention, one session at a time.</p></div></div>
+
+@if (!Workspace.IsLoaded)
+{
+    <div class="notice error">@(Workspace.LoadError ?? "Loading focus mode...")</div>
+}
+else
+{
+    <div class="focus-layout">
+        <section class="surface focus-main">
+            <div class="focus-top"><span class="eyebrow">FOCUS TIMER</span><span class="subtle-badge">NO DISTRACTIONS</span></div>
+            <div class="duration-options" role="group" aria-label="Focus duration">
+                @foreach (var minutes in new[] { 15, 25, 45 })
+                { <button type="button" class="duration-chip @(selectedMinutes == minutes ? "selected" : "")" disabled="@running" @onclick="() => ChooseDuration(minutes)">@minutes min</button> }
+            </div>
+            <div class="timer-ring" style="@($"--remaining:{ProgressPercent}%")"><div><strong aria-live="off">@TimeText</strong><span>@(running ? "STAY IN THE ZONE" : "READY WHEN YOU ARE")</span></div></div>
+            <div class="timer-controls">
+                @if (!running)
+                { <button class="btn primary" @onclick="StartTimer">▶ @(hasPaused ? "Resume focus" : "Start focusing")</button> }
+                else
+                { <button class="btn primary" @onclick="PauseTimer">Ⅱ Pause</button> }
+                <button class="btn secondary" @onclick="ResetTimer">↺ Reset</button>
+                @if ((running || hasPaused) && elapsedSeconds >= 60)
+                { <button class="btn secondary" @onclick="StopAndLogAsync">■ Save time</button> }
+            </div>
+            @if (!string.IsNullOrWhiteSpace(message))
+            { <div role="status" class="notice @(hasError ? "error" : "success")">@message</div> }
+            <p class="small-print centered">Your timer runs while this page stays connected. Saving time logs completed minutes.</p>
+        </section>
+        <aside class="focus-side">
+            <section class="surface focus-task-panel">
+                <div class="eyebrow">WHAT ARE YOU WORKING ON?</div><h2>Session assignment</h2>
+                <label class="sr-only" for="focus-assignment">Choose an assignment</label>
+                <select id="focus-assignment" class="control" disabled="@running" @bind="selectedTaskId">
+                    <option value="">General study time</option>
+                    @foreach (var task in Workspace.Tasks.Where(t => t.Status != AssignmentStatus.Completed))
+                    { <option value="@task.Id">@task.Title</option> }
+                </select>
+                <div class="helper-box">Tip: Start with the most urgent task, then take a short break.</div>
+            </section>
+            <section class="surface focus-stats-panel">
+                <div class="eyebrow">YOUR FOCUS LOG</div><h2>Time well spent</h2>
+                <div class="focus-big-number">@Workspace.Stats.FocusMinutes <span>min</span></div>
+                <div class="progress-legend"><span>Sessions saved</span><strong>@Workspace.Sessions.Count</strong></div>
+                <div class="progress-legend"><span>Today</span><strong>@Workspace.Sessions.Where(s => s.StartedAtUtc.ToLocalTime().Date == DateTime.Today).Sum(s => s.DurationMinutes) min</strong></div>
+                <p class="small-print">Sessions are saved to your local workspace file.</p>
+            </section>
+        </aside>
+    </div>
+}
+
+@code {
+    private int selectedMinutes = 25;
+    private int secondsRemaining = 25 * 60;
+    private int elapsedSeconds;
+    private bool running;
+    private bool hasPaused;
+    private string selectedTaskId = "";
+    private string? message;
+    private bool hasError;
+    private DateTime startedAtUtc;
+    private DateTimeOffset finishAt;
+    private CancellationTokenSource? timerSource;
+    private string TimeText => $"{secondsRemaining / 60:00}:{secondsRemaining % 60:00}";
+    private int ProgressPercent => (int)Math.Round(secondsRemaining * 100.0 / (selectedMinutes * 60));
+
+    protected override async Task OnInitializedAsync() => await Workspace.InitializeAsync();
+
+    private void ChooseDuration(int minutes)
+    {
+        selectedMinutes = minutes; secondsRemaining = minutes * 60; elapsedSeconds = 0;
+        hasPaused = false; message = null;
+    }
+    private void StartTimer()
+    {
+        if (running) return;
+        if (secondsRemaining == 0) { secondsRemaining = selectedMinutes * 60; elapsedSeconds = 0; }
+        if (!hasPaused) { startedAtUtc = DateTime.UtcNow; elapsedSeconds = 0; }
+        running = true; hasPaused = false; message = null;
+        finishAt = DateTimeOffset.UtcNow.AddSeconds(secondsRemaining);
+        timerSource = new CancellationTokenSource();
+        _ = RunTimerAsync(timerSource.Token);
+    }
+    private async Task RunTimerAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                secondsRemaining = Math.Max(0, (int)Math.Ceiling((finishAt - DateTimeOffset.UtcNow).TotalSeconds));
+                elapsedSeconds = selectedMinutes * 60 - secondsRemaining;
+                await InvokeAsync(StateHasChanged);
+                if (secondsRemaining == 0)
+                {
+                    running = false;
+                    var result = await RecordSessionAsync(selectedMinutes);
+                    message = result.Success ? "Session complete! Your focus time was saved." : result.Error;
+                    hasError = !result.Success;
+                    hasPaused = false;
+                    await InvokeAsync(StateHasChanged);
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException) { /* The user paused, reset or left the page. */ }
+    }
+    private void PauseTimer()
+    {
+        if (!running) return;
+        secondsRemaining = Math.Max(0, (int)Math.Ceiling((finishAt - DateTimeOffset.UtcNow).TotalSeconds));
+        elapsedSeconds = selectedMinutes * 60 - secondsRemaining;
+        timerSource?.Cancel(); running = false; hasPaused = true;
+    }
+    private void ResetTimer()
+    {
+        timerSource?.Cancel(); running = false; hasPaused = false;
+        secondsRemaining = selectedMinutes * 60; elapsedSeconds = 0; message = null;
+    }
+    private async Task StopAndLogAsync()
+    {
+        if (running) PauseTimer();
+        if (elapsedSeconds < 60) return;
+        var result = await RecordSessionAsync(elapsedSeconds / 60);
+        message = result.Success ? "Your focus time was saved." : result.Error;
+        hasError = !result.Success;
+        if (result.Success) { secondsRemaining = selectedMinutes * 60; elapsedSeconds = 0; hasPaused = false; }
+    }
+    private Task<OperationResult> RecordSessionAsync(int minutes)
+    {
+        Guid? taskId = Guid.TryParse(selectedTaskId, out var id) ? id : null;
+        return Workspace.AddFocusSessionAsync(startedAtUtc, minutes, taskId);
+    }
+    public void Dispose()
+    {
+        timerSource?.Cancel();
+        timerSource?.Dispose();
+    }
+}

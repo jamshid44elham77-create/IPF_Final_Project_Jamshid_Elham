@@ -1,0 +1,97 @@
+@page "/courses"
+@implements IDisposable
+@inject WorkspaceService Workspace
+@inject IJSRuntime JS
+<PageTitle>Courses · StudyFlow</PageTitle>
+
+<div class="page-heading"><div><div class="eyebrow">LEARNING ORGANIZATION</div><h1>My courses</h1>
+<p>Group your assignments by subject and see your progress.</p></div></div>
+
+@if (!Workspace.IsLoaded)
+{
+    <div class="notice error">@(Workspace.LoadError ?? "Loading courses...")</div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(message))
+    { <div class="notice @(hasError ? "error" : "success")" role="alert">@message</div> }
+    <div class="courses-layout">
+        <section class="course-list">
+            @if (Workspace.Courses.Count == 0)
+            { <div class="surface"><EmptyState Title="No courses yet" Message="Create a course using the form to the right." /></div> }
+            @foreach (var course in Workspace.Courses)
+            {
+                var items = Workspace.Tasks.Where(t => t.CourseId == course.Id).ToList();
+                var done = items.Count(t => t.Status == AssignmentStatus.Completed);
+                var percent = items.Count == 0 ? 0 : (int)Math.Round(done * 100.0 / items.Count);
+                <article class="surface course-card" @key="course.Id">
+                    <div class="course-card-header">
+                        <div class="course-heading"><span class="course-icon large" style="@($"background:{course.Color}")">▤</span>
+                            <div><h2>@course.Name</h2><small>@course.Code</small></div></div>
+                        <button class="icon-button danger" title="Delete course" aria-label="Delete @course.Name" @onclick="() => DeleteCourseAsync(course)">×</button>
+                    </div>
+                    <div class="course-stats"><span>@items.Count assignments</span><span>@done completed</span><strong>@percent%</strong></div>
+                    <div class="progress-track"><div class="progress-fill" style="@($"width:{percent}%;background:{course.Color}")"></div></div>
+                </article>
+            }
+        </section>
+        <aside class="surface add-course-panel">
+            <div class="eyebrow">ADD YOUR NEXT SUBJECT</div><h2>Create a course</h2>
+            <p class="section-copy">Use a short course code to keep your work easy to find.</p>
+            <EditForm Model="courseForm" OnValidSubmit="AddCourseAsync">
+                <DataAnnotationsValidator />
+                <div class="field"><label for="course-name">Course name</label>
+                    <InputText id="course-name" class="control" @bind-Value="courseForm.Name" placeholder="e.g. Data Structures" />
+                    <ValidationMessage For="@(() => courseForm.Name)" /></div>
+                <div class="field"><label for="course-code">Course code</label>
+                    <InputText id="course-code" class="control" @bind-Value="courseForm.Code" placeholder="e.g. CS202" />
+                    <ValidationMessage For="@(() => courseForm.Code)" /></div>
+                <div class="field"><label for="course-color">Color</label>
+                    <InputSelect id="course-color" class="control" @bind-Value="courseForm.Color">
+                        <option value="#7568F4">Lavender</option><option value="#19A7A0">Teal</option>
+                        <option value="#F6A248">Amber</option><option value="#E879A7">Rose</option>
+                        <option value="#438FD0">Blue</option>
+                    </InputSelect></div>
+                <button class="btn primary wide" type="submit">＋ Add course</button>
+            </EditForm>
+            <div class="helper-box">ℹ Courses with assignments cannot be deleted until their assignments are moved or removed.</div>
+        </aside>
+    </div>
+}
+
+@code {
+    private CourseForm courseForm = new();
+    private string? message;
+    private bool hasError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Workspace.InitializeAsync();
+        Workspace.Changed += Refresh;
+    }
+    private async Task AddCourseAsync()
+    {
+        var outcome = await Workspace.AddCourseAsync(courseForm.Name, courseForm.Code, courseForm.Color);
+        Show(outcome, "Course added successfully.");
+        if (outcome.Success) courseForm = new();
+    }
+    private async Task DeleteCourseAsync(Course course)
+    {
+        if (!await JS.InvokeAsync<bool>("studyflow.confirmDelete", $"Delete course '{course.Name}'?")) return;
+        Show(await Workspace.DeleteCourseAsync(course.Id), "Course deleted.");
+    }
+    private void Show(OperationResult r, string success) { hasError = !r.Success; message = r.Success ? success : r.Error; }
+    private void Refresh() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Workspace.Changed -= Refresh;
+
+    private sealed class CourseForm
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(55, MinimumLength = 2)]
+        public string Name { get; set; } = "";
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(15, MinimumLength = 2)]
+        public string Code { get; set; } = "";
+        public string Color { get; set; } = "#7568F4";
+    }
+}

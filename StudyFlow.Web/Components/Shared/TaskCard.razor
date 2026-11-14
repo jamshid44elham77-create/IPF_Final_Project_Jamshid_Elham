@@ -1,0 +1,33 @@
+<article class="task-card @(Item.Status == AssignmentStatus.Completed ? "task-done" : "")">
+    <button type="button" class="task-check @(Item.Status == AssignmentStatus.Completed ? "checked" : "")"
+            aria-label="@(Item.Status == AssignmentStatus.Completed ? "Mark as not started" : "Complete task")"
+            title="Toggle completed" @onclick="() => OnToggle.InvokeAsync(Item)">@(Item.Status == AssignmentStatus.Completed ? "✓" : "")</button>
+    <div class="task-content">
+        <div class="task-title-line"><h3>@Item.Title</h3><span class="priority-pill @Item.Priority.ToString().ToLowerInvariant()">@Item.Priority</span></div>
+        <div class="task-meta">
+            <span class="course-marker" style="@($"--course-color:{(Course?.Color ?? "#A2A9C1")}")"></span>
+            <span>@(Course?.Name ?? "Personal")</span>
+            <span class="meta-divider">·</span>
+            <span class="@(Item.DueDate.HasValue && Item.DueDate.Value.Date < DateTime.Today && Item.Status != AssignmentStatus.Completed ? "overdue-text" : "")">@TaskInsights.DueLabel(Item.DueDate, DateTime.Today)</span>
+            <span class="meta-divider">·</span>
+            <span>@Item.EstimatedMinutes min</span>
+        </div>
+    </div>
+    <div class="task-actions">
+        <span class="status-tag @Item.Status.ToString().ToLowerInvariant()">@StatusLabel</span>
+        <button class="icon-button" title="Edit task" aria-label="Edit @Item.Title" @onclick="() => OnEdit.InvokeAsync(Item)">✎</button>
+        <button class="icon-button danger" title="Delete task" aria-label="Delete @Item.Title" @onclick="() => OnDelete.InvokeAsync(Item)">×</button>
+    </div>
+</article>
+
+@code {
+    [Parameter, EditorRequired] public TaskItem Item { get; set; } = default!;
+    [Parameter] public Course? Course { get; set; }
+    [Parameter] public EventCallback<TaskItem> OnEdit { get; set; }
+    [Parameter] public EventCallback<TaskItem> OnDelete { get; set; }
+    [Parameter] public EventCallback<TaskItem> OnToggle { get; set; }
+    private string StatusLabel => Item.Status switch
+    {
+        AssignmentStatus.ToDo => "To do", AssignmentStatus.InProgress => "In progress", _ => "Completed"
+    };
+}
